@@ -10,13 +10,14 @@ def generate_launch_description():
             output='screen',
             parameters=[
                 {'server_address': 'mocap.perch'},
-                {'frame_rate': 100},
+                {'frame_rate': 120},
                 {'max_accel': 10.0},
-                {'publish_tf': False},
+                {'publish_tf': True},
                 {'publish_pts': False},
                 {'fixed_frame_id': 'mocap'},
+                {'timer_pub_freq': 100},
                 # Set to [''] to take in ALL models from Vicon
-                {'model_list': ['']},
+                {'model_list': ['crazy_jirl_01']},
             ],
             remappings=[
                 # Uncomment and modify the remapping if needed

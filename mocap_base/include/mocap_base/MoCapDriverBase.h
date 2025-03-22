@@ -33,6 +33,8 @@
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/pose.hpp>
 
+using nav_msgs::msg::Odometry;
+
 namespace mocap{
 
 /*
@@ -40,8 +42,8 @@ namespace mocap{
  */
 class Subject {
   public:
-     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-     
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
     enum Status {
       LOST,
       INITIALIZING,
@@ -97,7 +99,8 @@ class Subject {
     void processNewMeasurement(
         const double& time,
         const Eigen::Quaterniond& m_attitude,
-        const Eigen::Vector3d& m_position);
+        const Eigen::Vector3d& m_position,
+        std::pair<rclcpp::Publisher<Odometry>::SharedPtr, Odometry>& odometry_pair);
 
     void publishMarkerPoints(
         const double& time,
@@ -120,13 +123,13 @@ class Subject {
     // Tells the status of the object
     Status status;
 
-    // Prevent cocurrent reading and writing of the class
+    // Prevent concurrent reading and writing of the class
     boost::shared_mutex mtx;
 
     // Publisher for the subject
     std::shared_ptr<rclcpp::Node> nh_ptr;
     std::string parent_frame;
-    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_filter;
+    rclcpp::Publisher<Odometry>::SharedPtr pub_filter;
     rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_raw;
     rclcpp::Publisher<geometry_msgs::msg::PoseArray>::SharedPtr pub_points_raw;
 };
@@ -148,7 +151,7 @@ class MoCapDriverBase{
       frame_rate     (100),
       model_list     (std::vector<std::string>(0)),
       publish_tf     (false),
-      publish_pts     (true),
+      publish_pts    (true),
       fixed_frame_id ("mocap"){
       return;
     }
@@ -219,11 +222,18 @@ class MoCapDriverBase{
     // Publish Marker points [Wind estimation Project]
     bool publish_pts;
     std::string fixed_frame_id;
+
+    int timer_pub_freq;
+
     // no sign of this tf broadcaster object being used in cpp
     // tf2_ros::TransformBroadcaster tf_publisher;
 
+    // ROS 2 timer
+    rclcpp::TimerBase::SharedPtr pub_timer;
+    std::vector<std::pair<rclcpp::Publisher<Odometry>::SharedPtr, Odometry>> odometry_data;
+    std::vector<std::pair<rclcpp::Publisher<Odometry>::SharedPtr, Odometry>> odometry_data_threads;
+    boost::shared_mutex odom_mtx;
 };
 }
-
 
 #endif

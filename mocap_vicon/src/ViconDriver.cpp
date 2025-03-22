@@ -31,7 +31,6 @@ namespace ViconSDK = ViconDataStreamSDK::CPP;
 namespace mocap {
 
 bool ViconDriver::init() {
-
   server_address = this->nh->declare_parameter<string>("server_address", string("mocap.perch"));
   model_list = this->nh->declare_parameter<vector<string>>("model_list", vector<string>(0));
   frame_rate = this->nh->declare_parameter<int>("frame_rate", 100);
@@ -39,6 +38,7 @@ bool ViconDriver::init() {
   publish_tf = this->nh->declare_parameter<bool>("publish_tf", false);
   publish_pts = this->nh->declare_parameter<bool>("publish_pts", true);
   fixed_frame_id = this->nh->declare_parameter<string>("fixed_frame_id", string("mocap"));
+  timer_pub_freq = this->nh->declare_parameter<int>("timer_pub_freq", 10);
 
   this->nh->get_parameter("server_address", server_address);
   this->nh->get_parameter("model_list", model_list);
@@ -47,16 +47,14 @@ bool ViconDriver::init() {
   this->nh->get_parameter("publish_tf", publish_tf);
   this->nh->get_parameter("publish_pts", publish_pts);
   this->nh->get_parameter("fixed_frame_id", fixed_frame_id);
+  this->nh->get_parameter("timer_pub_freq", timer_pub_freq);
 
   frame_interval = 1.0 / static_cast<double>(frame_rate);
   double& dt = frame_interval;
-  process_noise.topLeftCorner<6, 6>() =
-    0.5*Matrix<double, 6, 6>::Identity()*dt*dt*max_accel;
-  process_noise.bottomRightCorner<6, 6>() =
-    Matrix<double, 6, 6>::Identity()*dt*max_accel;
+  process_noise.topLeftCorner<6, 6>() = 0.5*Matrix<double, 6, 6>::Identity()*dt*dt*max_accel;
+  process_noise.bottomRightCorner<6, 6>() = Matrix<double, 6, 6>::Identity()*dt*max_accel;
   process_noise *= process_noise; // Make it a covariance
-  measurement_noise =
-    Matrix<double, 6, 6>::Identity()*1e-3;
+  measurement_noise = Matrix<double, 6, 6>::Identity()*1e-3;
   measurement_noise *= measurement_noise; // Make it a covariance
   model_set.insert(model_list.begin(), model_list.end());
 
@@ -101,6 +99,11 @@ bool ViconDriver::init() {
   ts_sleep.tv_nsec = 100000000;
   nanosleep(&ts_sleep, NULL);
 
+  // Create timer to publish data
+  pub_timer = this->nh->create_wall_timer(
+    std::chrono::milliseconds(1000 / timer_pub_freq),
+    std::bind(&ViconDriver::publishData, this));
+
   return true;
 }
 
@@ -113,9 +116,21 @@ void ViconDriver::run() {
 }
 
 void ViconDriver::disconnect() {
-  RCLCPP_INFO_STREAM(this->nh->get_logger(), "Disconnected with the server at "
-      << server_address);
+  RCLCPP_INFO_STREAM(this->nh->get_logger(), "Disconnected with the server at " << server_address);
   client->Disconnect();
+  return;
+}
+
+void ViconDriver::publishData() {
+  std::vector<std::pair<rclcpp::Publisher<Odometry>::SharedPtr, Odometry>> odometry_data_local;
+  boost::unique_lock<boost::shared_mutex> write_lock(odom_mtx);
+  odometry_data_local = odometry_data;
+  write_lock.unlock();
+
+  for (auto& odometry_pair : odometry_data_local) {
+    odometry_pair.first->publish(odometry_pair.second);
+  }
+
   return;
 }
 
@@ -125,32 +140,29 @@ void ViconDriver::handleFrame() {
   vector<boost::thread> subject_threads;
   subject_threads.reserve(body_count);
 
-  for (int i = 0; i< body_count; ++i) {
-    string subject_name =
-      client->GetSubjectName(i).SubjectName;
+  odometry_data_threads.clear();
+  odometry_data_threads.reserve(body_count);
+
+  for (int i = 0; i < body_count; ++i) {
+    string subject_name = client->GetSubjectName(i).SubjectName;
 
     // in ROS2, you cannot have an empty list, meaning the way we have to define
     // one is by setting model_list = ['']
-    
-    if (model_set.size() == 1 ) {
+    if (model_set.size() == 1) {
       if (auto search = model_set.find(""); search != model_set.end()) {
         model_set.erase("");
       }
     }
 
-
     // Process the subject if required
     if (model_set.empty() || model_set.count(subject_name)) {
       // Create a new subject if it does not exist
       if (subjects.find(subject_name) == subjects.end()) {
-        subjects[subject_name] = Subject::SubjectPtr(
-            new Subject(nh, subject_name, fixed_frame_id));
-        subjects[subject_name]->setParameters(
-            process_noise, measurement_noise, frame_rate);
+        subjects[subject_name] = Subject::SubjectPtr(new Subject(nh, subject_name, fixed_frame_id));
+        subjects[subject_name]->setParameters(process_noise, measurement_noise, frame_rate);
       }
       // Handle the subject in a different thread
       subject_threads.emplace_back(&ViconDriver::handleSubject, this, i);
-      //handleSubject(i);
     }
   }
 
@@ -159,9 +171,12 @@ void ViconDriver::handleFrame() {
     thread.join();
   }
 
+  boost::unique_lock<boost::shared_mutex> write_lock(odom_mtx);
+  odometry_data = odometry_data_threads;
+  write_lock.unlock();
+
   // Send out warnings
-  for (auto it = subjects.begin();
-      it != subjects.end(); ++it) {
+  for (auto it = subjects.begin(); it != subjects.end(); ++it) {
     Subject::Status status = it->second->getStatus();
     if (status == Subject::LOST)
       RCLCPP_WARN_THROTTLE(this->nh->get_logger(), *this->nh->get_clock(), 1, "Lose track of subject %s", (it->first).c_str());
@@ -173,7 +188,6 @@ void ViconDriver::handleFrame() {
 }
 
 void ViconDriver::handleSubject(const int& sub_idx) {
-
   boost::unique_lock<boost::shared_mutex> write_lock(mtx);
   // We assume each subject has only one segment
   string subject_name = client->GetSubjectName(sub_idx).SubjectName;
@@ -182,9 +196,7 @@ void ViconDriver::handleSubject(const int& sub_idx) {
   // Publish individual points of each marker
   if (publish_pts) {
     client->EnableMarkerData();
-    ViconDataStreamSDK::CPP::Output_GetMarkerCount marker_count = 
-      client->GetMarkerCount(subject_name);
-
+    ViconDataStreamSDK::CPP::Output_GetMarkerCount marker_count = client->GetMarkerCount(subject_name);
 
     // Vector of each point, which contains X,Y,Z data
     std::vector<std::array<double, 3>> marker_points;
@@ -192,12 +204,11 @@ void ViconDriver::handleSubject(const int& sub_idx) {
 
     for (unsigned int i = 0; i < marker_count.MarkerCount; i++) {
       // Get the Marker Name
-      ViconDataStreamSDK::CPP::Output_GetMarkerName marker_name = 
-        client->GetMarkerName(subject_name, i);
-      
+      ViconDataStreamSDK::CPP::Output_GetMarkerName marker_name = client->GetMarkerName(subject_name, i);
+
       // Get the position of that marker in mm
       if (marker_name.Result != ViconDataStreamSDK::CPP::Result::InvalidSubjectName) {
-        ViconDataStreamSDK::CPP::Output_GetMarkerGlobalTranslation marker_pos = 
+        ViconDataStreamSDK::CPP::Output_GetMarkerGlobalTranslation marker_pos =
           client->GetMarkerGlobalTranslation(subject_name, marker_name.MarkerName);
 
         if (marker_pos.Result == ViconDataStreamSDK::CPP::Result::Success) {
@@ -213,41 +224,37 @@ void ViconDriver::handleSubject(const int& sub_idx) {
   }
 
   string segment_name = client->GetSegmentName(subject_name, 0).SegmentName;
+
   // Get the pose for the subject
-  ViconSDK::Output_GetSegmentGlobalTranslation trans =
-      client->GetSegmentGlobalTranslation(subject_name, segment_name);
-  ViconSDK::Output_GetSegmentGlobalRotationQuaternion quat =
-      client->GetSegmentGlobalRotationQuaternion(subject_name, segment_name);
+  ViconSDK::Output_GetSegmentGlobalTranslation trans = client->GetSegmentGlobalTranslation(subject_name, segment_name);
+  ViconSDK::Output_GetSegmentGlobalRotationQuaternion quat = client->GetSegmentGlobalRotationQuaternion(subject_name, segment_name);
   write_lock.unlock();
 
   //boost::shared_lock<boost::shared_mutex> read_lock(mtx);
-  if(trans.Result != ViconSDK::Result::Success ||
-     quat.Result != ViconSDK::Result::Success ||
-     trans.Occluded || quat.Occluded) {
+  if (trans.Result != ViconSDK::Result::Success ||
+      quat.Result != ViconSDK::Result::Success ||
+      trans.Occluded || quat.Occluded) {
     subjects[subject_name]->disable();
     return;
   }
 
   // Convert the msgs to Eigen type
-  Eigen::Quaterniond m_att(quat.Rotation[3],
-      quat.Rotation[0], quat.Rotation[1], quat.Rotation[2]);
-  Eigen::Vector3d m_pos(trans.Translation[0]/1000,
-      trans.Translation[1]/1000, trans.Translation[2]/1000);
+  Eigen::Quaterniond m_att(quat.Rotation[3], quat.Rotation[0], quat.Rotation[1], quat.Rotation[2]);
+  Eigen::Vector3d m_pos(trans.Translation[0]/1000, trans.Translation[1]/1000, trans.Translation[2]/1000);
 
   // Re-enable the object if it is lost previously
   if (subjects[subject_name]->getStatus() == Subject::LOST) {
     subjects[subject_name]->enable();
   }
 
+  std::pair<rclcpp::Publisher<Odometry>::SharedPtr, Odometry> odom_pair;
   // Feed the new measurement to the subject
-  subjects[subject_name]->processNewMeasurement(time, m_att, m_pos);
+  subjects[subject_name]->processNewMeasurement(time, m_att, m_pos, odom_pair);
+  odometry_data[sub_idx] = odom_pair;
   //read_lock.unlock();
 
-
-  // Publish tf if requred
-  if (publish_tf &&
-      subjects[subject_name]->getStatus() == Subject::TRACKED) {
-
+  // Publish tf if required
+  if (publish_tf && subjects[subject_name]->getStatus() == Subject::TRACKED) {
     Quaterniond att = subjects[subject_name]->getAttitude();
     Vector3d pos = subjects[subject_name]->getPosition();
     tf2::Quaternion att_tf;
@@ -260,7 +267,7 @@ void ViconDriver::handleSubject(const int& sub_idx) {
     pos_tf.setX(pos.x());
     pos_tf.setY(pos.y());
     pos_tf.setZ(pos.z());
-    
+
     geometry_msgs::msg::TransformStamped stamped_transform;
     stamped_transform.header.stamp = this->nh->get_clock()->now();
     stamped_transform.header.frame_id = fixed_frame_id;

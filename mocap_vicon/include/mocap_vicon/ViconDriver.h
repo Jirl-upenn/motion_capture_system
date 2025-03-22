@@ -88,6 +88,8 @@ class ViconDriver: public MoCapDriverBase {
     // Handle a the info of a single subject
     void handleSubject(const int& sub_idx);
 
+    void publishData();
+
     // Portal to communicate with the server
     ViconDataStreamSDK::CPP::Client* client;
 
@@ -100,13 +102,12 @@ class ViconDriver: public MoCapDriverBase {
     // A set to hold the model names
     std::set<std::string> model_set;
 
-    // Convariance matrices for initializing kalman filters
+    // Covariance matrices for initializing kalman filters
     Eigen::Matrix<double, 12, 12> process_noise;
     Eigen::Matrix<double,  6,  6> measurement_noise;
 
     // For multi-threading
     boost::shared_mutex mtx;
-
 };
 }
 
