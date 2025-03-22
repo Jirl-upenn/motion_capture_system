@@ -49,6 +49,18 @@ bool ViconDriver::init() {
   this->nh->get_parameter("fixed_frame_id", fixed_frame_id);
   this->nh->get_parameter("timer_pub_freq", timer_pub_freq);
 
+  RCLCPP_INFO(this->nh->get_logger(), "Server Address: %s", server_address.c_str());
+  RCLCPP_INFO(this->nh->get_logger(), "Model List:");
+  for (auto& model : model_list) {
+    RCLCPP_INFO(this->nh->get_logger(), "  %s", model.c_str());
+  }
+  RCLCPP_INFO(this->nh->get_logger(), "Frame Rate: %d", frame_rate);
+  RCLCPP_INFO(this->nh->get_logger(), "Max Acceleration: %f", max_accel);
+  RCLCPP_INFO(this->nh->get_logger(), "Publish TF: %s", publish_tf ? "True" : "False");
+  RCLCPP_INFO(this->nh->get_logger(), "Publish Marker Points: %s", publish_pts ? "True" : "False");
+  RCLCPP_INFO(this->nh->get_logger(), "Fixed Frame ID: %s", fixed_frame_id.c_str());
+  RCLCPP_INFO(this->nh->get_logger(), "Timer Publish Frequency: %d", timer_pub_freq);
+
   frame_interval = 1.0 / static_cast<double>(frame_rate);
   double& dt = frame_interval;
   process_noise.topLeftCorner<6, 6>() = 0.5*Matrix<double, 6, 6>::Identity()*dt*dt*max_accel;
