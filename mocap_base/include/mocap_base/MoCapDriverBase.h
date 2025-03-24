@@ -33,6 +33,8 @@
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/pose.hpp>
 
+#define LINE std::cout << __PRETTY_FUNCTION__ << " - Line: " << __LINE__ << std::endl;
+
 using nav_msgs::msg::Odometry;
 
 namespace mocap{

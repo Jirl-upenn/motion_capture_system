@@ -140,7 +140,9 @@ void ViconDriver::publishData() {
   write_lock.unlock();
 
   for (auto& odometry_pair : odometry_data_local) {
-    odometry_pair.first->publish(odometry_pair.second);
+    if (odometry_pair.first) {
+      odometry_pair.first->publish(odometry_pair.second);
+    }
   }
 
   return;
@@ -150,10 +152,10 @@ void ViconDriver::handleFrame() {
   int body_count = client->GetSubjectCount().SubjectCount;
   // Assign each subject with a thread
   vector<boost::thread> subject_threads;
-  subject_threads.reserve(body_count);
+  subject_threads.resize(body_count);
 
   odometry_data_threads.clear();
-  odometry_data_threads.reserve(body_count);
+  odometry_data_threads.resize(body_count);
 
   for (int i = 0; i < body_count; ++i) {
     string subject_name = client->GetSubjectName(i).SubjectName;
@@ -262,7 +264,7 @@ void ViconDriver::handleSubject(const int& sub_idx) {
   std::pair<rclcpp::Publisher<Odometry>::SharedPtr, Odometry> odom_pair;
   // Feed the new measurement to the subject
   subjects[subject_name]->processNewMeasurement(time, m_att, m_pos, odom_pair);
-  odometry_data[sub_idx] = odom_pair;
+  odometry_data_threads[sub_idx] = odom_pair;
   //read_lock.unlock();
 
   // Publish tf if required
