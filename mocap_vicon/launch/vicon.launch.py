@@ -17,7 +17,7 @@ def generate_launch_description():
                 {'publish_pts': False},
                 {'fixed_frame_id': 'mocap'},
                 {'timer_pub_freq': 50},
-                {'model_list': ['crazy_mpc1', 'crazy_jirl_test01']},
+                {'model_list': ['crazy_jirl_01', 'crazy_jirl_02']},
             ],
             remappings=[
                 # Uncomment and modify the remapping if needed
