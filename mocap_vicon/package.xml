@@ -13,8 +13,6 @@
   <author>Ke Sun</author>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
-  
-
 
   <exec_depend>ros2launch</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>

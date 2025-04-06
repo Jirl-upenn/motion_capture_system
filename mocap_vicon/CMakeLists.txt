@@ -13,6 +13,7 @@ find_package(tf2_eigen REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(mocap_base REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(jirl_interfaces REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(Boost REQUIRED COMPONENTS thread chrono)
 find_package(Eigen3 REQUIRED)
@@ -55,7 +56,7 @@ target_link_libraries(mocap_vicon_driver
   Eigen3::Eigen
 )
 
-install(TARGETS  mocap_vicon_driver 
+install(TARGETS  mocap_vicon_driver
   DESTINATION lib
 )
 
@@ -68,12 +69,11 @@ target_link_libraries(mocap_vicon_node
   ViconDataStreamSDK_CPP
   ${VICON_BOOST_LIBS}
   Eigen3::Eigen
-  
 )
- 
+
 ament_target_dependencies(mocap_vicon_node mocap_base Eigen3 rclcpp tf2_eigen  geometry_msgs nav_msgs)
 
-install(TARGETS  mocap_vicon_node 
+install(TARGETS  mocap_vicon_node
   DESTINATION lib/${PROJECT_NAME}/
 )
 install(

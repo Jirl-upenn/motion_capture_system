@@ -38,7 +38,8 @@ bool ViconDriver::init() {
   publish_tf = this->nh->declare_parameter<bool>("publish_tf", false);
   publish_pts = this->nh->declare_parameter<bool>("publish_pts", true);
   fixed_frame_id = this->nh->declare_parameter<string>("fixed_frame_id", string("mocap"));
-  timer_pub_freq = this->nh->declare_parameter<int>("timer_pub_freq", 10);
+  timer_single_pub_freq = this->nh->declare_parameter<int>("timer_single_pub_freq", 1);
+  timer_multi_pub_freq = this->nh->declare_parameter<int>("timer_multi_pub_freq", 1);
 
   this->nh->get_parameter("server_address", server_address);
   this->nh->get_parameter("model_list", model_list);
@@ -47,7 +48,8 @@ bool ViconDriver::init() {
   this->nh->get_parameter("publish_tf", publish_tf);
   this->nh->get_parameter("publish_pts", publish_pts);
   this->nh->get_parameter("fixed_frame_id", fixed_frame_id);
-  this->nh->get_parameter("timer_pub_freq", timer_pub_freq);
+  this->nh->get_parameter("timer_single_pub_freq", timer_single_pub_freq);
+  this->nh->get_parameter("timer_multi_pub_freq", timer_multi_pub_freq);
 
   RCLCPP_INFO(this->nh->get_logger(), "Server Address: %s", server_address.c_str());
   RCLCPP_INFO(this->nh->get_logger(), "Model List:");
@@ -59,7 +61,8 @@ bool ViconDriver::init() {
   RCLCPP_INFO(this->nh->get_logger(), "Publish TF: %s", publish_tf ? "True" : "False");
   RCLCPP_INFO(this->nh->get_logger(), "Publish Marker Points: %s", publish_pts ? "True" : "False");
   RCLCPP_INFO(this->nh->get_logger(), "Fixed Frame ID: %s", fixed_frame_id.c_str());
-  RCLCPP_INFO(this->nh->get_logger(), "Timer Publish Frequency: %d", timer_pub_freq);
+  RCLCPP_INFO(this->nh->get_logger(), "Timer Single Publisher Frequency: %d", timer_single_pub_freq);
+  RCLCPP_INFO(this->nh->get_logger(), "Timer Multi Publisher Frequency: %d", timer_multi_pub_freq);
 
   frame_interval = 1.0 / static_cast<double>(frame_rate);
   double& dt = frame_interval;
@@ -111,10 +114,17 @@ bool ViconDriver::init() {
   ts_sleep.tv_nsec = 100000000;
   nanosleep(&ts_sleep, NULL);
 
-  // Create timer to publish data
-  pub_timer = this->nh->create_wall_timer(
-    std::chrono::milliseconds(1000 / timer_pub_freq),
-    std::bind(&ViconDriver::publishData, this));
+  // Create publishers
+  pub_multi = this->nh->create_publisher<OdometryArray>("multi_odometry", 10);
+
+  // Create timers to publish data
+  single_pub_timer = this->nh->create_wall_timer(
+    std::chrono::milliseconds(1000 / timer_single_pub_freq),
+    std::bind(&ViconDriver::publishSingleData, this));
+
+  multi_pub_timer = this->nh->create_wall_timer(
+    std::chrono::milliseconds(1000 / timer_multi_pub_freq),
+    std::bind(&ViconDriver::publishMultiData, this));
 
   return true;
 }
@@ -133,7 +143,7 @@ void ViconDriver::disconnect() {
   return;
 }
 
-void ViconDriver::publishData() {
+void ViconDriver::publishSingleData() {
   std::vector<std::pair<rclcpp::Publisher<Odometry>::SharedPtr, Odometry>> odometry_data_local;
   boost::unique_lock<boost::shared_mutex> write_lock(odom_mtx);
   odometry_data_local = odometry_data;
@@ -144,6 +154,24 @@ void ViconDriver::publishData() {
       odometry_pair.first->publish(odometry_pair.second);
     }
   }
+
+  return;
+}
+
+void ViconDriver::publishMultiData() {
+  std::vector<std::pair<rclcpp::Publisher<Odometry>::SharedPtr, Odometry>> odometry_data_local;
+  boost::unique_lock<boost::shared_mutex> write_lock(odom_mtx);
+  odometry_data_local = odometry_data;
+  write_lock.unlock();
+
+  OdometryArray odom_array_msg;
+  for (size_t i = 0; i < odometry_data_local.size(); i++) {
+    if (odometry_data_local[i].first) {
+      odom_array_msg.odom_array.push_back(odometry_data_local[i].second);
+    }
+  }
+
+  pub_multi->publish(odom_array_msg);
 
   return;
 }

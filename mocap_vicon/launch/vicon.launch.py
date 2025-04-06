@@ -16,7 +16,8 @@ def generate_launch_description():
                 {'publish_tf': True},
                 {'publish_pts': False},
                 {'fixed_frame_id': 'mocap'},
-                {'timer_pub_freq': 50},
+                {'timer_single_pub_freq': 50},
+                {'timer_multi_pub_freq': 10},
                 {'model_list': ['crazy_jirl_01', 'crazy_jirl_02']},
             ],
             remappings=[

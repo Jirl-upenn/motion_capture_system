@@ -29,6 +29,7 @@
 #include <mocap_base/KalmanFilter.h>
 
 #include <nav_msgs/msg/odometry.hpp>
+#include <jirl_interfaces/msg/odometry_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 #include <geometry_msgs/msg/pose.hpp>
@@ -36,6 +37,7 @@
 #define LINE std::cout << __PRETTY_FUNCTION__ << " - Line: " << __LINE__ << std::endl;
 
 using nav_msgs::msg::Odometry;
+using jirl_interfaces::msg::OdometryArray;
 
 namespace mocap{
 
@@ -225,17 +227,22 @@ class MoCapDriverBase{
     bool publish_pts;
     std::string fixed_frame_id;
 
-    int timer_pub_freq;
+    int timer_single_pub_freq;
+    int timer_multi_pub_freq;
+
+    rclcpp::Publisher<OdometryArray>::SharedPtr pub_multi;
 
     // no sign of this tf broadcaster object being used in cpp
     // tf2_ros::TransformBroadcaster tf_publisher;
 
     // ROS 2 timer
-    rclcpp::TimerBase::SharedPtr pub_timer;
+    rclcpp::TimerBase::SharedPtr single_pub_timer;
+    rclcpp::TimerBase::SharedPtr multi_pub_timer;
     std::vector<std::pair<rclcpp::Publisher<Odometry>::SharedPtr, Odometry>> odometry_data;
     std::vector<std::pair<rclcpp::Publisher<Odometry>::SharedPtr, Odometry>> odometry_data_threads;
     boost::shared_mutex odom_mtx;
 };
+
 }
 
 #endif

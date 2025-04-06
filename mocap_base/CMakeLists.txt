@@ -11,6 +11,7 @@ find_package(rclcpp REQUIRED)
 find_package(Boost REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(jirl_interfaces REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_eigen REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -41,6 +42,7 @@ add_library(mocap_base_driver SHARED
 ament_target_dependencies(mocap_base_driver
   rclcpp
   geometry_msgs
+  jirl_interfaces
   tf2_eigen
   tf2_ros
   nav_msgs
